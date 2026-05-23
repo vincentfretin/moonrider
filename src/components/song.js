@@ -148,8 +148,14 @@ AFRAME.registerComponent('song', {
         this.source = evt.detail;
         resolve(this.source);
       }, ONCE);
+      // setAttribute is a no-op when the merged data matches the current
+      // data (re-BEGIN of the same song after exit), which would skip
+      // audioanalyser.update and never emit audioanalyserbuffersource.
+      // Detect that case and kick refreshSource explicitly.
+      const sameSrc = this.audioAnalyser.data.src === this.data.audio;
       this.analyserSetter.src = this.data.audio;
       data.analyserEl.setAttribute('audioanalyser', this.analyserSetter);
+      if (sameSrc) { this.audioAnalyser.refreshSource(); }
     });
   },
 
