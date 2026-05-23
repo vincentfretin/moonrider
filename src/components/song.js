@@ -17,10 +17,10 @@ if (!!skipDebug) {
  * Order of song init in conjuction with beat-generator:
  *
  * 1. previewStartTime is playing
- * 2. songloadfinish
+ * 2. songprocessfinish (audio buffer decoded, this.source assigned)
  * 3. beat-generator preloading
  * 4. preloaded beats generated
- * 5. beat-generator preloading finish
+ * 5. beat-generator preloading finish (beatloaderpreloadfinish)
  * 6. startAudio / songStartTime is set
  * 7. beat-generator continues off song current time
  */
@@ -89,6 +89,10 @@ AFRAME.registerComponent('song', {
 
     // On victory screen, play song in background.
     if (!oldData.isVictory && data.isVictory) {
+      // Tear down the just-ended game source so the fresh background-music
+      // source can take its place without leaving the previous one connected
+      // to the gain node.
+      if (this.source) { this.stopAudio(); }
       this.data.analyserEl.addEventListener('audioanalyserbuffersource', evt => {
         this.audioAnalyser.resumeContext();
         const gain = this.audioAnalyser.gainNode.gain;
@@ -155,7 +159,9 @@ AFRAME.registerComponent('song', {
       return;
     }
     this.source.onended = null;
-    if (this.isAudioPlaying) { this.source.stop(); }
+    // stop() throws InvalidStateError when the buffer already finished
+    // playing on its own; treat that as a no-op.
+    try { this.source.stop(); } catch (e) {}
     this.source.disconnect();
     this.source = null;
     this.isAudioPlaying = false;
@@ -186,19 +192,17 @@ AFRAME.registerComponent('song', {
   },
 
   onRestart: function () {
-    this.isAudioPlaying = false;
-
-    // Restart, get new buffer source node and play.
-    if (this.source) { this.source.disconnect(); }
+    // Restart reuses the same audio URL. Tear down the current source if
+    // we still hold one, then explicitly kick refreshSource — audioanalyser
+    // skips its update when src hasn't changed, so the bind path produces
+    // no new buffer source on its own. getAudio's listener picks up the
+    // source emitted here.
+    if (this.source) { this.stopAudio(); }
 
     // Clear gain interpolation values from game over.
     const gain = this.audioAnalyser.gainNode.gain;
     gain.cancelScheduledValues(0);
 
-    this.data.analyserEl.addEventListener('audioanalyserbuffersource', evt => {
-      this.source = evt.detail;
-      this.el.sceneEl.emit('songloadfinish', null, false);
-    }, ONCE);
     this.audioAnalyser.refreshSource();
   },
 
